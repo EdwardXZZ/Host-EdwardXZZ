@@ -4,6 +4,7 @@
   "description": "Hosting de bots WhatsApp - Saki Host",
   "main": "server.js",
   "scripts": {
+    "prestart": "npm install --production",
     "start": "node server.js"
   },
   "dependencies": {
