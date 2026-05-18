@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saki Bots - Hosting WhatsApp</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14; --card: #131820; --border: #2a2e3a;
+            --acc: #6c5ce7; --text: #e4e4e7; --text2: #a1a1aa;
+            --ok: #10b981; --err: #ef4444; --warn: #f59e0b;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .header h1 { font-size: 24px; color: var(--acc); }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        .stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+        .stat .val { font-size: 18px; font-weight: 700; color: var(--acc); }
+        .stat .lbl { font-size: 11px; color: var(--text2); margin-top: 4px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-bottom: 20px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+        .card h3 { margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+        .btn {
+            padding: 7px 14px; border-radius: 7px; border: none; cursor: pointer;
+            font-size: 12px; font-weight: 600; transition: 0.2s; font-family: inherit; margin: 2px;
+        }
+        .btn-start { background: var(--ok); color: #fff; }
+        .btn-stop { background: var(--warn); color: #000; }
+        .btn-restart { background: #3b82f6; color: #fff; }
+        .btn-reclone { background: #8b5cf6; color: #fff; }
+        .btn-delete { background: var(--err); color: #fff; }
+        .btn-create { background: var(--acc); color: #fff; padding: 10px 20px; font-size: 14px; }
+        .inp {
+            padding: 9px 12px; background: var(--bg); border: 1px solid var(--border);
+            border-radius: 7px; color: var(--text); font-size: 13px; outline: none; width: 100%; margin-bottom: 6px;
+        }
+        .console {
+            background: #000; color: #0f0; font-family: 'Space Mono', monospace;
+            padding: 12px; border-radius: 8px; height: 350px; overflow-y: auto;
+            font-size: 11px; line-height: 1.5; white-space: pre-wrap;
+        }
+        .status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+        .status-on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+        .status-off { background: var(--text2); }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+        .badge-on { background: rgba(16,185,129,0.15); color: var(--ok); }
+        .badge-off { background: rgba(255,255,255,0.05); color: var(--text2); }
+        .files-list { max-height: 150px; overflow-y: auto; font-size: 12px; color: var(--text2); }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
+        .modal.show { display: flex; }
+        .modal-content { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; width: 90%; max-width: 450px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤖 Saki Bots - WhatsApp</h1>
+        <button class="btn btn-create" onclick="abrirModal()">+ Crear Bot</button>
+    </div>
+
+    <div class="stats" id="statsContainer">
+        <div class="stat"><div class="val" id="cpuVal">--</div><div class="lbl">⚡ CPU</div></div>
+        <div class="stat"><div class="val" id="ramVal">--</div><div class="lbl">🧠 RAM</div></div>
+        <div class="stat"><div class="val" id="botsVal">--</div><div class="lbl">🤖 Bots</div></div>
+        <div class="stat"><div class="val" id="uptimeVal">--</div><div class="lbl">⏱ Uptime</div></div>
+    </div>
+
+    <div class="grid" id="botsContainer"></div>
+
+    <div class="card">
+        <h3>📟 Consola</h3>
+        <div class="console" id="console">[SISTEMA] Panel iniciado...</div>
+    </div>
+
+    <div class="modal" id="modalCrear">
+        <div class="modal-content">
+            <h3>➕ Nuevo Bot</h3>
+            <input type="text" id="nombreBot" class="inp" placeholder="Nombre del bot" required>
+            <input type="text" id="repoUrl" class="inp" placeholder="URL del repositorio GitHub (opcional)">
+            <button class="btn btn-create" onclick="crearBot()">Crear</button>
+            <button class="btn btn-stop" onclick="cerrarModal()">Cancelar</button>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const consoleEl = document.getElementById('console');
+
+        fetch('/api/bots').then(r => r.json()).then(renderizar);
+        setInterval(actualizarStats, 3000);
+        actualizarStats();
+
+        socket.on('bots_list', renderizar);
+        socket.on('log', d => { consoleEl.innerHTML += `\n[${d.botId}] ${d.mensaje}`; consoleEl.scrollTop = consoleEl.scrollHeight; });
+        socket.on('bot_estado', () => fetch('/api/bots').then(r => r.json()).then(renderizar));
+        socket.on('bot_creado', () => fetch('/api/bots').then(r => r.json()).then(renderizar));
+        socket.on('bot_eliminado', () => fetch('/api/bots').then(r => r.json()).then(renderizar));
+        socket.on('console_cleared', id => { if (!id) consoleEl.innerHTML = '[CONSOLA LIMPIADA]'; });
+
+        function actualizarStats() {
+            fetch('/api/stats').then(r => r.json()).then(s => {
+                document.getElementById('cpuVal').textContent = s.cpu + '%';
+                document.getElementById('ramVal').textContent = (s.ram.used / 1073741824).toFixed(1) + ' GB';
+                document.getElementById('botsVal').textContent = s.botsActivos + '/' + s.botsTotal;
+                document.getElementById('uptimeVal').textContent = Math.floor(s.uptime / 3600) + 'h';
+            });
+        }
+
+        function renderizar(bots) {
+            document.getElementById('botsContainer').innerHTML = bots.map(b => `
+                <div class="card">
+                    <h3><span class="status ${b.estado==='activo'?'status-on':'status-off'}"></span>${b.nombre}
+                    <span class="badge ${b.estado==='activo'?'badge-on':'badge-off'}">${b.estado}</span></h3>
+                    <p style="font-size:11px;color:var(--text2);">ID: ${b.id} | Repo: ${b.repoUrl || 'Ninguno'}</p>
+                    <button class="btn btn-start" onclick="accion('${b.id}','start')">▶</button>
+                    <button class="btn btn-stop" onclick="accion('${b.id}','stop')">⏹</button>
+                    <button class="btn btn-restart" onclick="accion('${b.id}','restart')">🔄</button>
+                    <button class="btn btn-reclone" onclick="accion('${b.id}','reclone')">📥</button>
+                    <button class="btn btn-delete" onclick="accion('${b.id}','delete')">🗑</button>
+                    <div class="files-list" id="files-${b.id}">
+                        <button class="btn btn-start" style="font-size:10px;" onclick="verArchivos('${b.id}')">📁 Archivos</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function accion(id, action) {
+            const method = action === 'delete' ? 'DELETE' : 'POST';
+            fetch(`/api/bots/${id}/${action}`, { method }).then(r => r.json()).then(() => fetch('/api/bots').then(r => r.json()).then(renderizar));
+        }
+
+        function verArchivos(id) {
+            fetch(`/api/bots/${id}/files`).then(r => r.json()).then(files => {
+                document.getElementById(`files-${id}`).innerHTML = files.map(f => `<div>📄 ${f.nombre} (${(f.tamano/1024).toFixed(1)} KB)</div>`).join('') +
+                `<input type="file" onchange="subirArchivo('${id}', this)" style="margin-top:6px;">`;
+            });
+        }
+
+        function subirArchivo(id, input) {
+            const fd = new FormData(); fd.append('archivo', input.files[0]);
+            fetch(`/api/bots/${id}/upload`, { method: 'POST', body: fd }).then(() => verArchivos(id));
+        }
+
+        function crearBot() {
+            const nombre = document.getElementById('nombreBot').value;
+            const repoUrl = document.getElementById('repoUrl').value;
+            fetch('/api/bots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre, repoUrl }) }).then(() => { cerrarModal(); fetch('/api/bots').then(r => r.json()).then(renderizar); });
+        }
+
+        function abrirModal() { document.getElementById('modalCrear').classList.add('show'); }
+        function cerrarModal() { document.getElementById('modalCrear').classList.remove('show'); }
+    </script>
+</body>
+</html>
